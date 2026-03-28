@@ -1,0 +1,36 @@
+[project]
+name = "scidex"
+version = "0.1.0"
+description = "SciDEX — The Scientific Discovery Exchange"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "neo4j>=5.0",
+    "chromadb>=0.5",
+    "openai>=1.0",
+    "streamlit>=1.30",
+    "plotly>=5.0",
+    "pyvis>=0.3",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "numpy>=1.24",
+    "weasyprint>=60",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scidex"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
