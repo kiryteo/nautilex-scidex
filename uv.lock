@@ -2552,6 +2552,7 @@ source = { editable = "." }
 dependencies = [
     { name = "chromadb" },
     { name = "neo4j" },
+    { name = "networkx" },
     { name = "numpy" },
     { name = "openai" },
     { name = "plotly" },
@@ -2571,6 +2572,7 @@ dev = [
 requires-dist = [
     { name = "chromadb", specifier = ">=0.5" },
     { name = "neo4j", specifier = ">=5.0" },
+    { name = "networkx", specifier = ">=3.6.1" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "openai", specifier = ">=1.0" },
     { name = "plotly", specifier = ">=5.0" },
