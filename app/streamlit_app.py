@@ -79,9 +79,18 @@ if st.button("Run Pipeline", type="primary", disabled=not qs_topic):
         def _on_progress(msg: str) -> None:
             progress_container.write(msg)
 
+        # Import LLM chat function if available
+        try:
+            from scidex.llm.client import chat as llm_chat
+
+            chat_fn = llm_chat
+        except Exception:
+            chat_fn = None
+
         pipeline = SciDEXPipeline(
             knowledge_accumulator=ka,
             on_progress=_on_progress,
+            chat_fn=chat_fn,
         )
         result = pipeline.run(
             topic=qs_topic,
@@ -89,6 +98,15 @@ if st.button("Run Pipeline", type="primary", disabled=not qs_topic):
             gde_rounds=qs_rounds,
         )
         st.session_state["pipeline_result"] = result
+
+        # Persist knowledge graph so Hypothesis page can load it on first visit
+        if result.get("knowledge_graph"):
+            from pathlib import Path as _Path
+            import json as _json
+
+            kg_path = _Path("data/knowledge_graph.json")
+            kg_path.parent.mkdir(parents=True, exist_ok=True)
+            kg_path.write_text(_json.dumps(result["knowledge_graph"], indent=2, default=str))
 
         # Summary
         n_papers = len(result.get("papers", []))
