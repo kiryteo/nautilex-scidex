@@ -140,15 +140,20 @@ if st.button("Run Pipeline", type="primary", disabled=not qs_topic):
         if result.get("papers"):
             try:
                 from scidex.literature.paper_store import PaperStore as _PS
+                from scidex.literature.s2_client import Paper as _Paper
 
                 _store = _PS()
-                _added = 0
+                _paper_objs: list[_Paper] = []
                 for p in result["papers"]:
                     try:
-                        _store.add(p)
-                        _added += 1
+                        if isinstance(p, _Paper):
+                            _paper_objs.append(p)
+                        elif isinstance(p, dict):
+                            _paper_objs.append(_Paper.from_s2(p))
+                        # else: skip unknown types
                     except Exception:
-                        pass  # skip duplicates / bad data
+                        pass  # skip bad data
+                _added = _store.add_papers(_paper_objs) if _paper_objs else 0
                 if _added:
                     st.toast(f"Added {_added} papers to the literature store.")
             except Exception:
@@ -289,24 +294,14 @@ Use the sidebar to navigate between modules:
 4. **Experiment Designer** — Design protocols to test hypotheses
 """)
 
-# Sidebar stats
-try:
-    from scidex.literature.paper_store import PaperStore
-
-    @st.cache_resource
-    def _get_paper_store():
-        return PaperStore()
-
-    store = _get_paper_store()
-    st.sidebar.metric("Papers in Store", store.count)
-
-    # Show KG stats if available — gives a richer picture than ChromaDB alone
-    if "kg" in st.session_state:
+# Sidebar stats — show KG size when available
+if "kg" in st.session_state:
+    try:
         _kg_stats = st.session_state["kg"].get_statistics()
-        st.sidebar.metric("KG Entities", _kg_stats.get("total_entities", 0))
-        st.sidebar.metric("KG Relationships", _kg_stats.get("total_relationships", 0))
-except Exception:
-    st.sidebar.info("Paper store not yet initialized.")
+        st.sidebar.metric("KG Entities", _kg_stats.num_nodes)
+        st.sidebar.metric("KG Relationships", _kg_stats.num_edges)
+    except Exception:
+        pass
 
 # --- Query History sidebar ---
 _qhist = st.session_state.get("query_history", [])
