@@ -99,6 +99,30 @@ if st.button("Run Pipeline", type="primary", disabled=not qs_topic):
         )
         st.session_state["pipeline_result"] = result
 
+        # --- Bridge pipeline result into the session state keys that the
+        #     Hypothesis Workshop (page 3) and Experiment Designer (page 4)
+        #     expect, so navigating there after a pipeline run shows results. ---
+        try:
+            from scidex.hypothesis.models import Hypothesis, HypothesisReport
+            from scidex.hypothesis.gde import GDEResult
+
+            # Reconstruct HypothesisReport for the Hypothesis Workshop
+            if result.get("hypotheses"):
+                hyp_objs = [Hypothesis(**h) for h in result["hypotheses"]]
+                st.session_state["hypothesis_report"] = HypothesisReport(
+                    topic=qs_topic,
+                    hypotheses=hyp_objs,
+                    knowledge_gaps=[],
+                    summary=f"Generated {len(hyp_objs)} hypotheses for '{qs_topic}'",
+                )
+
+            # Reconstruct GDEResult for the Hypothesis Workshop and Experiment Designer
+            if result.get("gde_result"):
+                st.session_state["gde_result"] = GDEResult(**result["gde_result"])
+
+        except Exception:
+            pass  # Non-fatal — pages will just show empty state
+
         # Persist knowledge graph so Hypothesis page can load it on first visit
         if result.get("knowledge_graph"):
             from pathlib import Path as _Path
