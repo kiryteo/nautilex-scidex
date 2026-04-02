@@ -118,9 +118,18 @@ class SciDEXPipeline:
     def _build_knowledge_graph(self, papers: list, result: dict):
         self._progress("Building knowledge graph...")
         try:
+            from pathlib import Path as _Path
             from scidex.knowledge_graph.graph import KnowledgeGraph
 
-            kg = KnowledgeGraph()
+            # Cumulative merge: load existing graph and add new papers on top.
+            # Only merge if we actually have new papers to add (otherwise an
+            # empty search would still produce hypotheses from old data).
+            kg_path = _Path("data/knowledge_graph.json")
+            if papers and kg_path.exists():
+                kg = KnowledgeGraph.load(kg_path)
+                self._progress("Loaded existing knowledge graph, merging new papers...")
+            else:
+                kg = KnowledgeGraph()
             for paper in papers:
                 meta = paper.to_dict() if hasattr(paper, "to_dict") else paper
                 # Normalise key names for KnowledgeGraph.add_paper

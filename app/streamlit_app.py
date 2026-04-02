@@ -26,8 +26,9 @@ generates novel hypotheses through structured debate, and designs experiments to
 try:
     from scidex.knowledge.accumulator import KnowledgeAccumulator
 
-    @st.cache_resource
     def _get_knowledge():
+        """Load fresh accumulator each time (no caching — it reads from disk
+        and must reflect new pipeline runs)."""
         return KnowledgeAccumulator()
 
     ka = _get_knowledge()
@@ -55,6 +56,20 @@ st.caption(
     "Enter a research topic to run the complete pipeline: "
     "Literature Search → Knowledge Graph → Hypothesis Generation → GDE → Experiment Design"
 )
+
+# --- Session History: load previous query log from disk ---
+if "query_history" not in st.session_state:
+    from pathlib import Path as _QHPath
+    import json as _qh_json
+
+    _qh_path = _QHPath("data/query_history.json")
+    if _qh_path.exists():
+        try:
+            st.session_state["query_history"] = _qh_json.loads(_qh_path.read_text())
+        except Exception:
+            st.session_state["query_history"] = []
+    else:
+        st.session_state["query_history"] = []
 
 qs_topic = st.text_input(
     "Research topic",
@@ -104,6 +119,41 @@ if st.button("Run Pipeline", type="primary", disabled=not qs_topic):
         )
         st.session_state["pipeline_result"] = result
 
+        # --- Log query to session history ---
+        from datetime import datetime as _dt
+        from pathlib import Path as _Path
+        import json as _json
+
+        _entry = {
+            "topic": qs_topic,
+            "papers_found": len(result.get("papers", [])),
+            "hypotheses": len(result.get("hypotheses", [])),
+            "timestamp": _dt.now().isoformat(timespec="seconds"),
+        }
+        st.session_state.setdefault("query_history", []).append(_entry)
+        _qh_save_path = _Path("data/query_history.json")
+        _qh_save_path.parent.mkdir(parents=True, exist_ok=True)
+        _qh_save_path.write_text(_json.dumps(st.session_state["query_history"], indent=2))
+
+        # --- Ingest pipeline papers into PaperStore so Literature Explorer
+        #     and sidebar counts stay in sync with the pipeline. ---
+        if result.get("papers"):
+            try:
+                from scidex.literature.paper_store import PaperStore as _PS
+
+                _store = _PS()
+                _added = 0
+                for p in result["papers"]:
+                    try:
+                        _store.add(p)
+                        _added += 1
+                    except Exception:
+                        pass  # skip duplicates / bad data
+                if _added:
+                    st.toast(f"Added {_added} papers to the literature store.")
+            except Exception:
+                pass  # PaperStore unavailable — non-fatal
+
         # --- Bridge pipeline result into the session state keys that the
         #     Hypothesis Workshop (page 3) and Experiment Designer (page 4)
         #     expect, so navigating there after a pipeline run shows results. ---
@@ -123,7 +173,27 @@ if st.button("Run Pipeline", type="primary", disabled=not qs_topic):
 
             # Reconstruct GDEResult for the Hypothesis Workshop and Experiment Designer
             if result.get("gde_result"):
-                st.session_state["gde_result"] = GDEResult(**result["gde_result"])
+                gde_obj = GDEResult(**result["gde_result"])
+                st.session_state["gde_result"] = gde_obj
+
+                # Persist GDE result to disk so it survives page navigation / restart
+                _gde_path = _Path("data/gde_result.json")
+                _gde_path.write_text(_json.dumps(result["gde_result"], indent=2, default=str))
+
+            # Persist hypothesis report to disk
+            if st.session_state.get("hypothesis_report"):
+                _hr = st.session_state["hypothesis_report"]
+                _hr_path = _Path("data/hypothesis_report.json")
+                _hr_data = {
+                    "topic": _hr.topic,
+                    "hypotheses": [
+                        h.model_dump() if hasattr(h, "model_dump") else h.__dict__
+                        for h in _hr.hypotheses
+                    ],
+                    "knowledge_gaps": _hr.knowledge_gaps,
+                    "summary": _hr.summary,
+                }
+                _hr_path.write_text(_json.dumps(_hr_data, indent=2, default=str))
 
         except Exception:
             pass  # Non-fatal — pages will just show empty state
@@ -131,8 +201,6 @@ if st.button("Run Pipeline", type="primary", disabled=not qs_topic):
         # Persist knowledge graph and refresh session state so all pages
         # (KG Viewer, Hypothesis Workshop) see the new graph immediately.
         if result.get("knowledge_graph"):
-            from pathlib import Path as _Path
-            import json as _json
             from scidex.knowledge_graph.graph import KnowledgeGraph as _KG
 
             kg_path = _Path("data/knowledge_graph.json")
@@ -231,5 +299,22 @@ try:
 
     store = _get_paper_store()
     st.sidebar.metric("Papers in Store", store.count)
+
+    # Show KG stats if available — gives a richer picture than ChromaDB alone
+    if "kg" in st.session_state:
+        _kg_stats = st.session_state["kg"].get_statistics()
+        st.sidebar.metric("KG Entities", _kg_stats.get("total_entities", 0))
+        st.sidebar.metric("KG Relationships", _kg_stats.get("total_relationships", 0))
 except Exception:
     st.sidebar.info("Paper store not yet initialized.")
+
+# --- Query History sidebar ---
+_qhist = st.session_state.get("query_history", [])
+if _qhist:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**Query History**")
+    for _qh in reversed(_qhist):
+        _ts = _qh.get("timestamp", "")[:16].replace("T", " ")
+        st.sidebar.caption(
+            f"**{_qh['topic']}** — {_qh.get('papers_found', '?')} papers, {_qh.get('hypotheses', '?')} hypotheses  \n{_ts}"
+        )

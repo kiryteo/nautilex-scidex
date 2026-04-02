@@ -29,7 +29,24 @@ if "kg" not in st.session_state:
         st.session_state.kg = KnowledgeGraph()
 
 if "hypothesis_report" not in st.session_state:
-    st.session_state.hypothesis_report = None
+    # Try loading from disk (persisted by main page pipeline)
+    _hr_path = Path("data/hypothesis_report.json")
+    if _hr_path.exists():
+        try:
+            import json as _json
+
+            _hr_data = _json.loads(_hr_path.read_text())
+            _hyps = [Hypothesis(**h) for h in _hr_data.get("hypotheses", [])]
+            st.session_state.hypothesis_report = HypothesisReport(
+                topic=_hr_data.get("topic", ""),
+                hypotheses=_hyps,
+                knowledge_gaps=_hr_data.get("knowledge_gaps", []),
+                summary=_hr_data.get("summary", ""),
+            )
+        except Exception:
+            st.session_state.hypothesis_report = None
+    else:
+        st.session_state.hypothesis_report = None
 
 if "bookmarked" not in st.session_state:
     # Load saved bookmarks
@@ -387,7 +404,19 @@ st.caption(
 )
 
 if "gde_result" not in st.session_state:
-    st.session_state.gde_result = None
+    # Try loading from disk (persisted by main page pipeline)
+    _gde_path = Path("data/gde_result.json")
+    if _gde_path.exists():
+        try:
+            import json as _json2
+            from scidex.hypothesis.gde import GDEResult
+
+            _gde_data = _json2.loads(_gde_path.read_text())
+            st.session_state.gde_result = GDEResult(**_gde_data)
+        except Exception:
+            st.session_state.gde_result = None
+    else:
+        st.session_state.gde_result = None
 
 gde_col1, gde_col2 = st.columns(2)
 with gde_col1:
@@ -513,6 +542,18 @@ st.subheader("Saved Hypotheses")
 if st.session_state.bookmarked:
     for bm in st.session_state.bookmarked:
         label = _TYPE_LABELS.get(bm.get("hypothesis_type", ""), bm.get("hypothesis_type", ""))
-        st.markdown(f"- **[{label}]** {bm.get('statement', '')}")
+        emoji = _TYPE_EMOJI.get(bm.get("hypothesis_type", ""), "")
+        conf = bm.get("confidence", 0)
+        stmt = bm.get("statement", "")
+        # Truncate to keep the list scannable; full text in expander
+        short = stmt[:150] + "..." if len(stmt) > 150 else stmt
+        with st.expander(f"{emoji} **[{label}]** {short}"):
+            st.markdown(f"**Statement:** {stmt}")
+            if conf:
+                st.progress(conf, text=f"Confidence: {conf:.0%}")
+            if bm.get("supporting_evidence"):
+                st.markdown("**Evidence:**")
+                for ev in bm["supporting_evidence"]:
+                    st.markdown(f"- {ev}")
 else:
     st.caption("No bookmarked hypotheses yet.")

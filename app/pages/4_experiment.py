@@ -132,6 +132,20 @@ if input_mode == "From bookmarks":
         )
 elif input_mode == "From GDE results":
     gde_result = st.session_state.get("gde_result")
+    # Try loading from disk if not in session state
+    if gde_result is None:
+        from pathlib import Path as _ExpPath
+
+        _gde_path = _ExpPath("data/gde_result.json")
+        if _gde_path.exists():
+            try:
+                import json as _json_exp
+                from scidex.hypothesis.gde import GDEResult as _GDERes
+
+                gde_result = _GDERes(**_json_exp.loads(_gde_path.read_text()))
+                st.session_state["gde_result"] = gde_result
+            except Exception:
+                gde_result = None
     if gde_result is not None and gde_result.final_hypotheses_list:
         options = {
             f"{fh.get('statement', '')[:120]}": fh for fh in gde_result.final_hypotheses_list
