@@ -123,14 +123,19 @@ if st.button("Run Pipeline", type="primary", disabled=not qs_topic):
         except Exception:
             pass  # Non-fatal — pages will just show empty state
 
-        # Persist knowledge graph so Hypothesis page can load it on first visit
+        # Persist knowledge graph and refresh session state so all pages
+        # (KG Viewer, Hypothesis Workshop) see the new graph immediately.
         if result.get("knowledge_graph"):
             from pathlib import Path as _Path
             import json as _json
+            from scidex.knowledge_graph.graph import KnowledgeGraph as _KG
 
             kg_path = _Path("data/knowledge_graph.json")
             kg_path.parent.mkdir(parents=True, exist_ok=True)
             kg_path.write_text(_json.dumps(result["knowledge_graph"], indent=2, default=str))
+
+            # Force all pages to use the fresh KG — overwrite even if key exists
+            st.session_state["kg"] = _KG.load(kg_path)
 
         # Summary
         n_papers = len(result.get("papers", []))
