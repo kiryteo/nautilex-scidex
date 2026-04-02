@@ -247,8 +247,10 @@ else:
                         center_entity=center if center else None,
                         depth=depth,
                     )
-                    html_content = Path(out_path).read_text()
-
-                components.html(html_content, height=650, scrolling=True)
+                    st.session_state["kg_html"] = Path(out_path).read_text()
             except Exception as exc:
                 st.error(f"Visualization failed: {exc}")
+
+    # Render persists across rerenders until a new graph is requested
+    if st.session_state.get("kg_html"):
+        components.html(st.session_state["kg_html"], height=650, scrolling=True)

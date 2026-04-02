@@ -84,8 +84,13 @@ if st.button("Run Pipeline", type="primary", disabled=not qs_topic):
             from scidex.llm.client import chat as llm_chat
 
             chat_fn = llm_chat
-        except Exception:
+        except Exception as _llm_err:
             chat_fn = None
+            st.warning(
+                f"LLM unavailable ({_llm_err}) — experiment design will be skipped. "
+                "Set `GITHUB_TOKEN` in `.env` to enable it.",
+                icon="⚠️",
+            )
 
         pipeline = SciDEXPipeline(
             knowledge_accumulator=ka,
@@ -136,6 +141,8 @@ if st.button("Run Pipeline", type="primary", disabled=not qs_topic):
 
             # Force all pages to use the fresh KG — overwrite even if key exists
             st.session_state["kg"] = _KG.load(kg_path)
+            # Clear any cached KG visualization so the new graph renders fresh
+            st.session_state.pop("kg_html", None)
 
         # Summary
         n_papers = len(result.get("papers", []))

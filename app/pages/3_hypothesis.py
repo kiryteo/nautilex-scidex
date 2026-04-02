@@ -46,6 +46,23 @@ kg: KnowledgeGraph = st.session_state.kg
 stats = kg.get_statistics()
 workspace_store = WorkspaceStore()
 
+# Module-level label maps (used in both the Hypothesis display and Bookmarks sections)
+_TYPE_LABELS = {
+    "gap_filling": "Gap Filling",
+    "analogy_transfer": "Analogy Transfer",
+    "contradiction_resolution": "Contradiction Resolution",
+    "combination": "Swanson ABC",
+    "extension": "Extension / Evolution",
+}
+
+_TYPE_EMOJI = {
+    "gap_filling": "🔍",
+    "analogy_transfer": "🔄",
+    "contradiction_resolution": "⚡",
+    "combination": "🔗",
+    "extension": "📈",
+}
+
 # ---------------------------------------------------------------------------
 # Sidebar — Graph info + knowledge stats
 # ---------------------------------------------------------------------------
@@ -152,7 +169,15 @@ generate_btn = st.button("Generate Hypotheses", type="primary", disabled=not top
 if generate_btn:
     with st.spinner("Running hypothesis generation pipeline..."):
         try:
-            generator = HypothesisGenerator()  # no LLM by default in UI
+            # Use LLM when available for richer hypothesis generation
+            try:
+                from scidex.llm.client import chat as _llm_chat
+
+                _gen_chat_fn = _llm_chat
+            except Exception:
+                _gen_chat_fn = None
+
+            generator = HypothesisGenerator(chat_fn=_gen_chat_fn)
             report = generator.generate(
                 kg,
                 topic=topic,
@@ -188,22 +213,6 @@ if report is not None:
 
     # Hypotheses
     st.subheader(f"Hypotheses ({len(report.hypotheses)})")
-
-    _TYPE_LABELS = {
-        "gap_filling": "Gap Filling",
-        "analogy_transfer": "Analogy Transfer",
-        "contradiction_resolution": "Contradiction Resolution",
-        "combination": "Swanson ABC",
-        "extension": "Extension / Evolution",
-    }
-
-    _TYPE_EMOJI = {
-        "gap_filling": "🔍",
-        "analogy_transfer": "🔄",
-        "contradiction_resolution": "⚡",
-        "combination": "🔗",
-        "extension": "📈",
-    }
 
     # Type filter
     all_types = sorted({h.hypothesis_type for h in report.hypotheses})
