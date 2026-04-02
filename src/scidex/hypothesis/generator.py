@@ -16,11 +16,12 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from scidex.knowledge_graph.graph import KnowledgeGraph
-from scidex.hypothesis.models import Hypothesis, HypothesisReport, GapAnalysis
+from scidex.hypothesis.models import Hypothesis, HypothesisReport
 from scidex.hypothesis.gap_detector import GapDetector
 from scidex.hypothesis.swanson_linker import SwansonLinker
 from scidex.hypothesis.analogy_engine import AnalogyEngine
 from scidex.hypothesis.contradictions import ContradictionMiner
+from scidex.hypothesis.ranking import rank_hypotheses
 
 logger = logging.getLogger(__name__)
 
@@ -121,8 +122,7 @@ class HypothesisGenerator:
         if refine_with_llm and self._chat_fn and all_hypotheses:
             all_hypotheses = self._refine_scores(all_hypotheses)
 
-        # Sort by confidence descending
-        all_hypotheses.sort(key=lambda h: h.confidence, reverse=True)
+        all_hypotheses = rank_hypotheses(all_hypotheses)
 
         # Build knowledge-gap list from the analysis
         knowledge_gaps = gap_analysis.suggested_directions + [
@@ -183,8 +183,6 @@ class HypothesisGenerator:
             text = "\n".join(line for line in lines if not line.strip().startswith("```"))
         try:
             result = json.loads(text)
-            if isinstance(result, list):
-                return result
         except json.JSONDecodeError:
-            pass
-        return []
+            return list()
+        return result if isinstance(result, list) else list()

@@ -25,6 +25,8 @@ class Hypothesis(BaseModel):
     novelty_score: float = 0.0
     testability_score: float = 0.0
     source_papers: list[str] = Field(default_factory=list)
+    evidence_summary: dict = Field(default_factory=dict)
+    composite_score: float = 0.0
     generated_at: str = ""
 
 
