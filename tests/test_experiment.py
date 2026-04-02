@@ -19,6 +19,7 @@ from scidex.experiment.exporter import ProtocolExporter
 from scidex.experiment.uniprot_client import UniProtClient
 from scidex.experiment.pubmed_client import PubMedClient
 from scidex.hypothesis.models import Hypothesis
+from scidex.workspace.session import hydrate_hypothesis
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +274,31 @@ class TestModels:
         assert isinstance(d, dict)
         assert d["title"] == "Test Protocol"
         assert isinstance(d["variables"], list)
+
+    def test_hydrate_hypothesis_from_saved_workspace_payload(self):
+        payload = {
+            "id": "saved-hyp-1",
+            "statement": "Saved workspace hypothesis",
+            "hypothesis_type": "gap_filling",
+            "supporting_evidence": ["Evidence A"],
+            "confidence": 0.7,
+            "novelty_score": 0.8,
+            "testability_score": 0.9,
+            "source_papers": ["Paper A"],
+            "evidence_summary": {
+                "support_count": 1,
+                "source_paper_count": 1,
+                "source_titles": ["Paper A"],
+                "top_support": ["Evidence A"],
+            },
+            "composite_score": 0.82,
+        }
+
+        hypothesis = hydrate_hypothesis(payload)
+
+        assert hypothesis is not None
+        assert hypothesis.id == "saved-hyp-1"
+        assert hypothesis.evidence_summary["source_titles"] == ["Paper A"]
 
 
 # ---------------------------------------------------------------------------

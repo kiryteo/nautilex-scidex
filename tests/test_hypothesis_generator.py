@@ -41,7 +41,7 @@ def _mock_chat(messages, **kwargs) -> str:
         if isinstance(data, list) and data and "id" in data[0]:
             return json.dumps([{"id": item["id"], "testability_score": 0.9} for item in data])
     except (json.JSONDecodeError, TypeError, KeyError):
-        pass
+        return "[]"
 
     return "[]"
 
@@ -185,3 +185,31 @@ class TestHypothesisGenerator:
         report = gen.generate(kg, "empty topic")
         assert isinstance(report, HypothesisReport)
         assert report.topic == "empty topic"
+
+    def test_generate_enriches_hypotheses_with_structured_evidence(self, kg_full):
+        gen = HypothesisGenerator(chat_fn=_mock_chat)
+
+        report = gen.generate(kg_full, "gene therapy", papers=SAMPLE_PAPERS)
+
+        enriched = next(
+            hypothesis
+            for hypothesis in report.hypotheses
+            if hypothesis.hypothesis_type == "contradiction_resolution"
+        )
+        assert enriched.evidence_summary["support_count"] >= 1
+        assert enriched.evidence_summary["source_paper_count"] >= 0
+        assert "Paper Alpha" in enriched.evidence_summary["source_titles"]
+
+    def test_generate_preserves_existing_fields_after_enrichment(self, kg_full):
+        gen = HypothesisGenerator(chat_fn=_mock_chat)
+
+        report = gen.generate(kg_full, "fish oil", source_entity="fish oil")
+
+        swanson = next(
+            hypothesis
+            for hypothesis in report.hypotheses
+            if hypothesis.hypothesis_type == "combination"
+        )
+        assert swanson.supporting_evidence
+        assert swanson.statement
+        assert swanson.evidence_summary["support_count"] == len(swanson.supporting_evidence)

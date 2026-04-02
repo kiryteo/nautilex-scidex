@@ -2,15 +2,14 @@
 
 import streamlit as st
 import json
-from pathlib import Path
 
-from scidex.errors import ExperimentError
 from scidex.experiment.designer import ExperimentDesigner
 from scidex.experiment.exporter import ProtocolExporter
 from scidex.experiment.models import ExperimentProtocol
 from scidex.experiment.uniprot_client import UniProtClient
 from scidex.experiment.pubmed_client import PubMedClient
 from scidex.hypothesis.models import Hypothesis
+from scidex.workspace.session import hydrate_hypothesis
 
 st.header("Experiment Designer")
 
@@ -23,6 +22,9 @@ if "designed_protocols" not in st.session_state:
 
 if "current_protocol" not in st.session_state:
     st.session_state.current_protocol = None
+
+if "active_workspace_name" not in st.session_state:
+    st.session_state.active_workspace_name = None
 
 # ---------------------------------------------------------------------------
 # Sidebar — UniProt & PubMed lookup
@@ -101,6 +103,9 @@ st.sidebar.metric("Designed Protocols", len(st.session_state.designed_protocols)
 
 st.subheader("Hypothesis")
 
+if st.session_state.active_workspace_name:
+    st.caption(f"Active workspace: {st.session_state.active_workspace_name}")
+
 input_mode = st.radio(
     "Input method",
     ["From bookmarks", "From GDE results", "Enter manually"],
@@ -119,7 +124,7 @@ if input_mode == "From bookmarks":
         selected = st.selectbox("Select a hypothesis", list(options.keys()))
         if selected:
             bm = options[selected]
-            hypothesis = Hypothesis(**bm)
+            hypothesis = hydrate_hypothesis(bm)
     else:
         st.info(
             "No bookmarked hypotheses. Go to the Hypothesis Workshop to generate "
@@ -134,7 +139,7 @@ elif input_mode == "From GDE results":
         selected = st.selectbox("Select a GDE-refined hypothesis", list(options.keys()))
         if selected:
             fh = options[selected]
-            hypothesis = Hypothesis(**fh)
+            hypothesis = hydrate_hypothesis(fh)
     else:
         st.info("No GDE results available. Run GDE in the Hypothesis Workshop first.")
 else:

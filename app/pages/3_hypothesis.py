@@ -4,14 +4,16 @@ import streamlit as st
 from pathlib import Path
 import json
 
-from scidex.errors import HypothesisError
 from scidex.knowledge_graph.graph import KnowledgeGraph
 from scidex.hypothesis.generator import HypothesisGenerator
-from scidex.hypothesis.gap_detector import GapDetector
-from scidex.hypothesis.swanson_linker import SwansonLinker
-from scidex.hypothesis.analogy_engine import AnalogyEngine
-from scidex.hypothesis.models import Hypothesis, HypothesisReport
+from scidex.hypothesis.models import HypothesisReport
 from scidex.hypothesis.gde import GenerateDebateEvolve
+from scidex.workspace import WorkspaceStore
+from scidex.workspace.session import (
+    build_comparison_payload,
+    build_workspace_snapshot,
+    restore_session_from_snapshot,
+)
 
 st.header("Hypothesis Workshop")
 
@@ -37,8 +39,12 @@ if "bookmarked" not in st.session_state:
     else:
         st.session_state.bookmarked = []
 
+if "active_workspace_name" not in st.session_state:
+    st.session_state.active_workspace_name = None
+
 kg: KnowledgeGraph = st.session_state.kg
 stats = kg.get_statistics()
+workspace_store = WorkspaceStore()
 
 # ---------------------------------------------------------------------------
 # Sidebar — Graph info + knowledge stats
@@ -65,7 +71,7 @@ try:
     kb1.metric("Papers", _snap.total_papers)
     kb2.metric("Hypotheses", _snap.total_hypotheses)
 except Exception:
-    pass
+    st.sidebar.caption("Knowledge base unavailable for this session.")
 
 if stats.num_nodes == 0:
     st.warning("The knowledge graph is empty. Go to **Knowledge Graph** page to add papers first.")
@@ -74,6 +80,41 @@ if stats.num_nodes == 0:
 st.sidebar.divider()
 st.sidebar.subheader("Bookmarks")
 st.sidebar.metric("Saved Hypotheses", len(st.session_state.bookmarked))
+
+st.sidebar.divider()
+st.sidebar.subheader("Workspaces")
+available_workspaces = workspace_store.list_workspaces()
+workspace_names = [workspace.name for workspace in available_workspaces]
+if workspace_names:
+    selected_workspace = st.sidebar.selectbox(
+        "Load saved workspace",
+        options=workspace_names,
+        index=0,
+        key="selected_workspace_name",
+    )
+    if st.sidebar.button("Load Workspace"):
+        snapshot = workspace_store.load(selected_workspace)
+        if snapshot is not None:
+            restored = restore_session_from_snapshot(snapshot)
+            for key, value in restored.items():
+                st.session_state[key] = value
+            st.rerun()
+else:
+    st.sidebar.caption("No saved workspaces yet.")
+
+workspace_name = st.sidebar.text_input(
+    "Save current workspace as",
+    value=st.session_state.active_workspace_name or "",
+)
+if st.sidebar.button("Save Workspace", disabled=not workspace_name.strip()):
+    try:
+        snapshot = build_workspace_snapshot(workspace_name.strip(), st.session_state)
+        workspace_store.save(snapshot)
+    except OSError as exc:
+        st.sidebar.error(f"Failed to save workspace '{workspace_name.strip()}': {exc}")
+    else:
+        st.session_state.active_workspace_name = workspace_name.strip()
+        st.sidebar.success(f"Saved workspace '{workspace_name.strip()}'")
 
 # ---------------------------------------------------------------------------
 # Inputs
@@ -86,15 +127,18 @@ with col1:
     topic = st.text_input(
         "Topic / research question",
         placeholder="e.g., gene therapy for breast cancer",
+        key="hyp_topic",
     )
     source_entity = st.text_input(
         "Source entity for Swanson linking (optional)",
         placeholder="e.g., CRISPR, fish oil",
+        key="hyp_source_entity",
     )
 with col2:
     source_method = st.text_input(
         "Method for analogy search (optional)",
         placeholder="e.g., CRISPR, RNA-seq",
+        key="hyp_source_method",
     )
 
     # Strategy hints
@@ -131,6 +175,8 @@ if report is not None:
     # Summary
     st.subheader(f"Results: {report.topic}")
     st.info(report.summary)
+    if st.session_state.active_workspace_name:
+        st.caption(f"Active workspace: {st.session_state.active_workspace_name}")
 
     # Knowledge gap analysis
     with st.expander("Knowledge Gap Analysis", expanded=True):
@@ -171,10 +217,11 @@ if report is not None:
     # Sort option
     sort_by = st.selectbox(
         "Sort by",
-        options=["Confidence", "Novelty", "Testability"],
+        options=["Composite Score", "Confidence", "Novelty", "Testability"],
         index=0,
     )
     sort_key = {
+        "Composite Score": lambda h: h.composite_score,
         "Confidence": lambda h: h.confidence,
         "Novelty": lambda h: h.novelty_score,
         "Testability": lambda h: h.testability_score,
@@ -182,6 +229,50 @@ if report is not None:
 
     filtered = [h for h in report.hypotheses if h.hypothesis_type in selected_types]
     filtered.sort(key=sort_key, reverse=True)
+
+    comparison_ids = st.multiselect(
+        "Compare hypotheses",
+        options=[h.id for h in filtered],
+        default=[h.id for h in filtered[: min(2, len(filtered))]],
+        format_func=lambda hypothesis_id: next(
+            (
+                hypothesis.statement[:100]
+                for hypothesis in filtered
+                if hypothesis.id == hypothesis_id
+            ),
+            hypothesis_id,
+        ),
+    )
+
+    if comparison_ids:
+        comparison_payload = build_comparison_payload(filtered, comparison_ids)
+        st.markdown("### Hypothesis Comparison")
+        st.table(
+            [
+                {
+                    "Statement": item["statement"][:100],
+                    "Composite": f"{item['composite_score']:.2f}",
+                    "Confidence": f"{item['confidence']:.2f}",
+                    "Novelty": f"{item['novelty_score']:.2f}",
+                    "Testability": f"{item['testability_score']:.2f}",
+                    "Support": item["evidence_summary"].get("support_count", 0),
+                    "Papers": item["evidence_summary"].get("source_paper_count", 0),
+                }
+                for item in comparison_payload
+            ]
+        )
+        comparison_columns = st.columns(len(comparison_payload))
+        for column, item in zip(comparison_columns, comparison_payload):
+            with column:
+                st.markdown(f"**{item['statement']}**")
+                st.metric("Composite Score", f"{item['composite_score']:.2f}")
+                st.markdown("**Supporting Evidence**")
+                for evidence in item["evidence_sections"]["supporting_evidence"]:
+                    st.markdown(f"- {evidence}")
+                if item["evidence_sections"]["source_papers"]:
+                    st.markdown("**Source Papers**")
+                    for paper in item["evidence_sections"]["source_papers"]:
+                        st.markdown(f"- {paper}")
 
     for i, h in enumerate(filtered):
         emoji = _TYPE_EMOJI.get(h.hypothesis_type, "💡")
@@ -200,6 +291,7 @@ if report is not None:
                 st.metric("Novelty", f"{h.novelty_score:.2f}")
             with score_cols[2]:
                 st.metric("Testability", f"{h.testability_score:.2f}")
+            st.metric("Composite", f"{h.composite_score:.2f}")
 
             if h.supporting_evidence:
                 st.markdown("**Supporting Evidence:**")
@@ -209,12 +301,19 @@ if report is not None:
             if h.source_papers:
                 st.markdown("**Source Papers:** " + ", ".join(h.source_papers))
 
+            if h.evidence_summary:
+                st.markdown("**Evidence Summary:**")
+                st.markdown(
+                    f"- Support items: {h.evidence_summary.get('support_count', 0)}\n"
+                    f"- Source papers: {h.evidence_summary.get('source_paper_count', 0)}"
+                )
+
             # Bookmark button
             bookmarked_ids = {b["id"] for b in st.session_state.bookmarked}
             if h.id in bookmarked_ids:
                 st.success("Bookmarked")
             else:
-                if st.button(f"Bookmark", key=f"bm_{h.id}"):
+                if st.button("Bookmark", key=f"bm_{h.id}"):
                     st.session_state.bookmarked.append(h.model_dump())
                     bm_path = Path("data/bookmarked_hypotheses.json")
                     bm_path.parent.mkdir(parents=True, exist_ok=True)
